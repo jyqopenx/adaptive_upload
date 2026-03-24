@@ -1,7 +1,12 @@
-import pandas as pd
 import re
+from io import BytesIO
+
+import pandas as pd
 
 
+# =========================
+# Adaptive Cost Upload
+# =========================
 def get_vendor_info(row, vendor_map_series_local):
     source_text = row.get("JOURNAL_LINE_DESCRIPTION", "")
 
@@ -18,7 +23,7 @@ def get_vendor_info(row, vendor_map_series_local):
         if start_idx != -1:
             next_gt_idx = source_text.find(">", start_idx + 1)
             if next_gt_idx != -1:
-                return source_text[start_idx + 1:next_gt_idx].strip()
+                return source_text[start_idx + 1 : next_gt_idx].strip()
 
         return "General Spend"
 
@@ -61,7 +66,9 @@ def normalize_vendor_mapping(vendor_mapping):
 
     vendor_mapping = vendor_mapping.dropna(subset=["Code"])
     vendor_mapping = vendor_mapping[vendor_mapping["Code"] != ""]
-    vendor_mapping = vendor_mapping.drop_duplicates(subset="Code", keep="first").reset_index(drop=True)
+    vendor_mapping = vendor_mapping.drop_duplicates(subset="Code", keep="first").reset_index(
+        drop=True
+    )
 
     return vendor_mapping
 
@@ -105,10 +112,12 @@ def add_missing_vendor_mappings(jedi_report_cleaned, vendor_mapping):
             continue
 
         if new_code not in existing_codes and new_code not in seen_new_codes:
-            new_vendor_mappings_from_journal.append({
-                "Code": new_code,
-                "Vendor Name": new_vendor_name
-            })
+            new_vendor_mappings_from_journal.append(
+                {
+                    "Code": new_code,
+                    "Vendor Name": new_vendor_name,
+                }
+            )
             seen_new_codes.add(new_code)
 
     new_mappings_df = pd.DataFrame(new_vendor_mappings_from_journal)
@@ -118,12 +127,14 @@ def add_missing_vendor_mappings(jedi_report_cleaned, vendor_mapping):
         new_mappings_df["Vendor Name"] = new_mappings_df["Vendor Name"].astype(str).str.strip()
 
         vendor_mapping = pd.concat([vendor_mapping, new_mappings_df], ignore_index=True)
-        vendor_mapping = vendor_mapping.drop_duplicates(subset="Code", keep="first").reset_index(drop=True)
+        vendor_mapping = vendor_mapping.drop_duplicates(subset="Code", keep="first").reset_index(
+            drop=True
+        )
 
     return vendor_mapping, new_mappings_df
 
 
-def process_files(raw_jedi_file, vendor_mapping_file, accounts_file):
+def process_cost_files(raw_jedi_file, vendor_mapping_file, accounts_file):
     jedi_report = pd.read_excel(raw_jedi_file, header=1)
     vendor_mapping = pd.read_csv(vendor_mapping_file, encoding="latin1")
     accounts = pd.read_csv(accounts_file, encoding="latin1")
@@ -142,14 +153,13 @@ def process_files(raw_jedi_file, vendor_mapping_file, accounts_file):
         | (jedi_report_cleaned["PARTY_NAME"].astype(str).str.strip() == "")
     )
 
-    jedi_report_cleaned.loc[blank_party_mask, "PARTY_NAME"] = (
-        jedi_report_cleaned.loc[blank_party_mask]
-        .apply(lambda row: get_vendor_info(row, vendor_map_series), axis=1)
-    )
+    jedi_report_cleaned.loc[blank_party_mask, "PARTY_NAME"] = jedi_report_cleaned.loc[
+        blank_party_mask
+    ].apply(lambda row: get_vendor_info(row, vendor_map_series), axis=1)
 
     vendor_mapping, new_mappings_df = add_missing_vendor_mappings(
         jedi_report_cleaned,
-        vendor_mapping
+        vendor_mapping,
     )
 
     vendor_map_series = vendor_mapping.set_index("Code")["Vendor Name"]
@@ -162,10 +172,9 @@ def process_files(raw_jedi_file, vendor_mapping_file, accounts_file):
         .eq("ADD VENDOR CODES")
     )
 
-    jedi_report_cleaned.loc[mask_add_vendor, "PARTY_NAME"] = (
-        jedi_report_cleaned.loc[mask_add_vendor]
-        .apply(lambda row: get_vendor_info(row, vendor_map_series), axis=1)
-    )
+    jedi_report_cleaned.loc[mask_add_vendor, "PARTY_NAME"] = jedi_report_cleaned.loc[
+        mask_add_vendor
+    ].apply(lambda row: get_vendor_info(row, vendor_map_series), axis=1)
 
     remaining_add_vendor_codes = jedi_report_cleaned[
         jedi_report_cleaned["PARTY_NAME"]
@@ -180,7 +189,10 @@ def process_files(raw_jedi_file, vendor_mapping_file, accounts_file):
 
     detail = jedi_report_cleaned.merge(
         accounts[[accounts.columns[0], accounts.columns[2]]].rename(
-            columns={accounts.columns[0]: "NATURAL_ACCOUNT", accounts.columns[2]: "ACCOUNT_TYPE"}
+            columns={
+                accounts.columns[0]: "NATURAL_ACCOUNT",
+                accounts.columns[2]: "ACCOUNT_TYPE",
+            }
         ),
         on="NATURAL_ACCOUNT",
         how="left",
@@ -191,13 +203,15 @@ def process_files(raw_jedi_file, vendor_mapping_file, accounts_file):
 
     detail_cube = detail[detail["ACCOUNT_TYPE"].astype(str).str.strip() == "Cube"].copy()
 
-    cos_operating_expenses_df = pd.DataFrame({
-        "Account": detail_cube["NATURAL_ACCOUNT"],
-        "Level": detail_cube["COST_CENTER"],
-        "Vendor Name": detail_cube["VENDOR_NAME_HELPER"],
-        "Region": detail_cube["LOCATION"],
-        "Revenue": detail_cube["USD_AMOUNT"],
-    })
+    cos_operating_expenses_df = pd.DataFrame(
+        {
+            "Account": detail_cube["NATURAL_ACCOUNT"],
+            "Level": detail_cube["COST_CENTER"],
+            "Vendor Name": detail_cube["VENDOR_NAME_HELPER"],
+            "Region": detail_cube["LOCATION"],
+            "Revenue": detail_cube["USD_AMOUNT"],
+        }
+    )
 
     accounts_to_filter = [51115, 62290]
     filtered_accounts_df = jedi_report_cleaned[
@@ -212,17 +226,19 @@ def process_files(raw_jedi_file, vendor_mapping_file, accounts_file):
         ["NATURAL_ACCOUNT", "COST_CENTER", "Cleaned_Vendor_Name", "LOCATION", "USD_AMOUNT"]
     ].copy()
 
-    new_cos_operating_rows = new_cos_operating_rows.rename(columns={
-        "NATURAL_ACCOUNT": "Account",
-        "COST_CENTER": "Level",
-        "Cleaned_Vendor_Name": "Vendor Name",
-        "LOCATION": "Region",
-        "USD_AMOUNT": "Revenue"
-    })
+    new_cos_operating_rows = new_cos_operating_rows.rename(
+        columns={
+            "NATURAL_ACCOUNT": "Account",
+            "COST_CENTER": "Level",
+            "Cleaned_Vendor_Name": "Vendor Name",
+            "LOCATION": "Region",
+            "USD_AMOUNT": "Revenue",
+        }
+    )
 
     cos_operating_expenses_df = pd.concat(
         [cos_operating_expenses_df, new_cos_operating_rows],
-        ignore_index=True
+        ignore_index=True,
     )
 
     return {
@@ -231,4 +247,354 @@ def process_files(raw_jedi_file, vendor_mapping_file, accounts_file):
         "new_mappings_df": new_mappings_df,
         "vendor_mapping": vendor_mapping,
         "jedi_report_cleaned": jedi_report_cleaned,
+    }
+
+
+# =========================
+# Adaptive Revenue Demand Upload
+# =========================
+def _safe_read_instruction_sheet(instructions_file, sheet_index):
+    instructions_file.seek(0)
+    return pd.read_excel(instructions_file, sheet_name=sheet_index, header=None)
+
+
+def _normalize_integer_series(series):
+    return pd.to_numeric(series, errors="coerce").astype("Int64")
+
+
+def _derive_month_fields(demand):
+    if "utc_month_sid" not in demand.columns:
+        raise ValueError("Column 'utc_month_sid' is required in demand data.")
+
+    month_values = pd.to_numeric(demand["utc_month_sid"], errors="coerce").dropna()
+    if month_values.empty:
+        raise ValueError("No valid values found in 'utc_month_sid'.")
+
+    latest_raw = int(month_values.max())
+    latest_raw_str = str(latest_raw)
+
+    parsed_month = pd.to_datetime(latest_raw_str, format="%Y%m", errors="coerce")
+    if pd.isna(parsed_month):
+        parsed_month = pd.to_datetime(latest_raw_str, format="%Y%m%d", errors="coerce")
+
+    if pd.isna(parsed_month):
+        raise ValueError(
+            "Could not parse 'utc_month_sid'. Expected values like YYYYMM or YYYYMMDD."
+        )
+
+    month_column_name = parsed_month.strftime("%b-%y")
+    latest_month_str = parsed_month.strftime("%b %Y")
+    return month_column_name, latest_month_str
+
+
+def _apply_excel_formatting(writer, instructions_df, data_df, output_sheet_name):
+    instructions_df.to_excel(writer, sheet_name="Instructions", index=False, header=False)
+    data_df.to_excel(writer, sheet_name=output_sheet_name, index=False)
+
+    workbook = writer.book
+
+    instructions_ws = writer.sheets["Instructions"]
+    data_ws = writer.sheets[output_sheet_name]
+
+    bold_format = workbook.add_format({"bold": True})
+    instructions_ws.set_row(0, None, bold_format)
+
+    bold_no_border_format = workbook.add_format(
+        {
+            "bold": True,
+            "bottom": 0,
+            "top": 0,
+            "left": 0,
+            "right": 0,
+        }
+    )
+    data_ws.set_row(0, None, bold_no_border_format)
+
+
+def _build_revenue_report_file(instructions_df, final_df, output_sheet_name):
+    output_buffer = BytesIO()
+    with pd.ExcelWriter(output_buffer, engine="xlsxwriter") as writer:
+        _apply_excel_formatting(writer, instructions_df, final_df, output_sheet_name)
+    output_buffer.seek(0)
+    return output_buffer.getvalue()
+
+
+def generate_revenue_reports_iteration(
+    demand,
+    instructions_df,
+    device_type,
+    environment,
+    report_identifier,
+    device_prefix,
+    month_column_name,
+    latest_month_str,
+):
+    filtered_demand_iter = demand[
+        (demand["device_type"] == device_type) & (demand["environment"] == environment)
+    ].copy()
+
+    if filtered_demand_iter.empty:
+        return None
+
+    required_columns = [
+        "Level",
+        "AdvertiserAccountID",
+        "integration",
+        "ad_format",
+        "video_format",
+        "transaction_type",
+        "bidout_partner",
+        "tot_mkt_impressions",
+        "tot_spend_usd",
+    ]
+    missing_cols = [c for c in required_columns if c not in filtered_demand_iter.columns]
+    if missing_cols:
+        raise ValueError(
+            f"Missing required columns in demand data for revenue report: {missing_cols}"
+        )
+
+    filtered_demand_iter["ad_form_2"] = filtered_demand_iter.apply(
+        lambda row: "display" if row["ad_format"] == "BANNER" else row["video_format"],
+        axis=1,
+    )
+
+    grouped_demand_iter = (
+        filtered_demand_iter.groupby(
+            [
+                "Level",
+                "AdvertiserAccountID",
+                "integration",
+                "ad_form_2",
+                "transaction_type",
+                "bidout_partner",
+            ],
+            dropna=False,
+        )
+        .agg(
+            tot_mkt_impressions_sum=("tot_mkt_impressions", "sum"),
+            tot_spend_usd_sum=("tot_spend_usd", "sum"),
+        )
+        .reset_index()
+    )
+
+    melted_demand_iter = grouped_demand_iter.melt(
+        id_vars=[
+            "Level",
+            "AdvertiserAccountID",
+            "integration",
+            "ad_form_2",
+            "transaction_type",
+            "bidout_partner",
+        ],
+        var_name="Account",
+        value_name=month_column_name,
+    )
+
+    melted_demand_iter["Account"] = melted_demand_iter["Account"].map(
+        {
+            "tot_mkt_impressions_sum": "Sum of tot_mkt_impressions",
+            "tot_spend_usd_sum": "Sum of tot_spend_usd",
+        }
+    )
+
+    final_report_iter = melted_demand_iter.rename(
+        columns={
+            "Level": "Level Code",
+            "AdvertiserAccountID": "Demand Partner ID Code",
+            "integration": "Integration Code",
+            "ad_form_2": "Ad_Format Code",
+            "transaction_type": "Transaction_Type Code",
+            "bidout_partner": "Bidout_Partner Code",
+        }
+    )
+
+    output_columns_order = [
+        "Account",
+        "Level Code",
+        "Demand Partner ID Code",
+        "Integration Code",
+        "Ad_Format Code",
+        "Transaction_Type Code",
+        "Bidout_Partner Code",
+        month_column_name,
+    ]
+    final_report_iter = final_report_iter[output_columns_order]
+
+    triggers_df_iter = filtered_demand_iter[
+        [
+            "Level",
+            "AdvertiserAccountID",
+            "integration",
+            "ad_form_2",
+            "transaction_type",
+            "bidout_partner",
+        ]
+    ].drop_duplicates().reset_index(drop=True)
+
+    triggers_df_iter["Account"] = "triggers"
+    triggers_df_iter[month_column_name] = 1
+
+    final_triggers_report_iter = triggers_df_iter.rename(
+        columns={
+            "Level": "Level Code",
+            "AdvertiserAccountID": "Demand Partner ID Code",
+            "integration": "Integration Code",
+            "ad_form_2": "Ad_Format Code",
+            "transaction_type": "Transaction_Type Code",
+            "bidout_partner": "Bidout_Partner Code",
+        }
+    )
+
+    final_triggers_report_iter = final_triggers_report_iter[output_columns_order]
+
+    main_sheet_name = f"_{report_identifier.replace('_', '.')} Rev - Demand - Model - {device_prefix}"
+    trigger_sheet_name = main_sheet_name
+
+    report_filename = (
+        f"_{report_identifier}_Rev_-_Demand_-_Model_-__{device_prefix} LOAD FILE "
+        f"({latest_month_str}).xlsx"
+    )
+    trigger_filename = (
+        f"_{report_identifier}_Rev_-_Demand_-_Model_-__{device_prefix} LOAD FILE "
+        f"({latest_month_str}) - trigger.xlsx"
+    )
+
+    report_bytes = _build_revenue_report_file(
+        instructions_df=instructions_df,
+        final_df=final_report_iter,
+        output_sheet_name=main_sheet_name,
+    )
+
+    trigger_bytes = _build_revenue_report_file(
+        instructions_df=instructions_df,
+        final_df=final_triggers_report_iter,
+        output_sheet_name=trigger_sheet_name,
+    )
+
+    return {
+        "report_filename": report_filename,
+        "report_bytes": report_bytes,
+        "trigger_filename": trigger_filename,
+        "trigger_bytes": trigger_bytes,
+        "main_report_df": final_report_iter,
+        "trigger_report_df": final_triggers_report_iter,
+    }
+
+
+def process_revenue_files(instructions_file, demand_data_file, demand_id_file):
+    instructions_sheet1 = _safe_read_instruction_sheet(instructions_file, 0)
+    instructions_sheet2 = _safe_read_instruction_sheet(instructions_file, 1)
+    instructions_sheet3 = _safe_read_instruction_sheet(instructions_file, 2)
+
+    demand_data_file.seek(0)
+    demand = pd.read_csv(demand_data_file, encoding="latin1")
+
+    demand_id_file.seek(0)
+    demand_mapping = pd.read_csv(demand_id_file, encoding="latin1")
+
+    if "AdvertiserAccountID" not in demand.columns:
+        raise ValueError("Column 'AdvertiserAccountID' is required in demand data.")
+    if "advertiser_account_name" not in demand.columns:
+        raise ValueError("Column 'advertiser_account_name' is required in demand data.")
+    if "dsp_id" not in demand_mapping.columns:
+        raise ValueError("Column 'dsp_id' is required in demand mapping.")
+    if "dsp_name" not in demand_mapping.columns:
+        raise ValueError("Column 'dsp_name' is required in demand mapping.")
+
+    demand_mapping = demand_mapping.copy()
+    demand = demand.copy()
+
+    demand_mapping["dsp_id"] = _normalize_integer_series(demand_mapping["dsp_id"])
+    demand["AdvertiserAccountID"] = _normalize_integer_series(demand["AdvertiserAccountID"])
+
+    demand_advertiser_ids = pd.Series(demand["AdvertiserAccountID"].dropna().unique())
+    mapped_dsp_ids = pd.Series(demand_mapping["dsp_id"].dropna().unique())
+
+    unmapped_advertiser_ids = [
+        adv_id for adv_id in demand_advertiser_ids.tolist() if adv_id not in mapped_dsp_ids.tolist()
+    ]
+
+    new_mappings_df = (
+        demand[demand["AdvertiserAccountID"].isin(unmapped_advertiser_ids)][
+            ["AdvertiserAccountID", "advertiser_account_name"]
+        ]
+        .drop_duplicates()
+        .rename(
+            columns={
+                "AdvertiserAccountID": "dsp_id",
+                "advertiser_account_name": "dsp_name",
+            }
+        )
+    )
+
+    if not new_mappings_df.empty:
+        new_mappings_df["dsp_id"] = new_mappings_df["dsp_id"].astype("Int64")
+
+    updated_demand_mapping = pd.concat(
+        [demand_mapping, new_mappings_df],
+        ignore_index=True,
+    ).drop_duplicates(subset=["dsp_id"], keep="first")
+
+    if "advertiser_account_name" in demand.columns:
+        demand = demand.drop(columns=["advertiser_account_name"])
+
+    month_column_name, latest_month_str = _derive_month_fields(demand)
+
+    iterations = [
+        {
+            "device_type": "desktop",
+            "environment": "web",
+            "report_identifier": "B_01",
+            "device_prefix": "De",
+            "instructions_df": instructions_sheet1,
+        },
+        {
+            "device_type": "mobile",
+            "environment": "web",
+            "report_identifier": "B_02",
+            "device_prefix": "Mo",
+            "instructions_df": instructions_sheet2,
+        },
+        {
+            "device_type": "mobile",
+            "environment": "app",
+            "report_identifier": "B_03",
+            "device_prefix": "Mo",
+            "instructions_df": instructions_sheet3,
+        },
+    ]
+
+    generated_reports = {}
+    report_previews = {}
+
+    for config in iterations:
+        report_result = generate_revenue_reports_iteration(
+            demand=demand,
+            instructions_df=config["instructions_df"],
+            device_type=config["device_type"],
+            environment=config["environment"],
+            report_identifier=config["report_identifier"],
+            device_prefix=config["device_prefix"],
+            month_column_name=month_column_name,
+            latest_month_str=latest_month_str,
+        )
+
+        if report_result is None:
+            continue
+
+        generated_reports[report_result["report_filename"]] = report_result["report_bytes"]
+        generated_reports[report_result["trigger_filename"]] = report_result["trigger_bytes"]
+
+        report_previews[config["report_identifier"]] = {
+            "main_report_df": report_result["main_report_df"],
+            "trigger_report_df": report_result["trigger_report_df"],
+        }
+
+    return {
+        "updated_demand_mapping": updated_demand_mapping,
+        "new_mappings_df": new_mappings_df,
+        "unmapped_advertiser_ids": unmapped_advertiser_ids,
+        "generated_reports": generated_reports,
+        "report_previews": report_previews,
+        "month_label": latest_month_str,
     }
