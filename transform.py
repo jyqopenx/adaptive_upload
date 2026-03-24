@@ -319,6 +319,22 @@ def _build_revenue_report_file(instructions_df, final_df, output_sheet_name):
     return output_buffer.getvalue()
 
 
+def _standardize_demand_id_file(demand_id_df):
+    demand_id_df = demand_id_df.copy()
+    demand_id_df.columns = [str(c).strip() for c in demand_id_df.columns]
+
+    if "dsp_id" in demand_id_df.columns:
+        id_col = "dsp_id"
+    else:
+        id_col = demand_id_df.columns[0]
+
+    demand_id_df = demand_id_df[[id_col]].rename(columns={id_col: "dsp_id"})
+    demand_id_df["dsp_id"] = _normalize_integer_series(demand_id_df["dsp_id"])
+    demand_id_df = demand_id_df.dropna(subset=["dsp_id"]).drop_duplicates().reset_index(drop=True)
+
+    return demand_id_df
+
+
 def generate_revenue_reports_iteration(
     demand,
     instructions_df,
@@ -476,8 +492,6 @@ def generate_revenue_reports_iteration(
         "report_bytes": report_bytes,
         "trigger_filename": trigger_filename,
         "trigger_bytes": trigger_bytes,
-        "main_report_df": final_report_iter,
-        "trigger_report_df": final_triggers_report_iter,
     }
 
 
@@ -490,32 +504,27 @@ def process_revenue_files(instructions_file, demand_data_file, demand_id_file):
     demand = pd.read_csv(demand_data_file, encoding="latin1")
 
     demand_id_file.seek(0)
-    demand_mapping = pd.read_csv(demand_id_file, encoding="latin1")
+    demand_id_raw = pd.read_csv(demand_id_file, encoding="latin1")
 
     if "AdvertiserAccountID" not in demand.columns:
         raise ValueError("Column 'AdvertiserAccountID' is required in demand data.")
     if "advertiser_account_name" not in demand.columns:
         raise ValueError("Column 'advertiser_account_name' is required in demand data.")
-    if "dsp_id" not in demand_mapping.columns:
-        raise ValueError("Column 'dsp_id' is required in demand mapping.")
-    if "dsp_name" not in demand_mapping.columns:
-        raise ValueError("Column 'dsp_name' is required in demand mapping.")
 
-    demand_mapping = demand_mapping.copy()
+    known_demand_ids_df = _standardize_demand_id_file(demand_id_raw)
+
     demand = demand.copy()
-
-    demand_mapping["dsp_id"] = _normalize_integer_series(demand_mapping["dsp_id"])
     demand["AdvertiserAccountID"] = _normalize_integer_series(demand["AdvertiserAccountID"])
 
     demand_advertiser_ids = pd.Series(demand["AdvertiserAccountID"].dropna().unique())
-    mapped_dsp_ids = pd.Series(demand_mapping["dsp_id"].dropna().unique())
+    known_dsp_ids = pd.Series(known_demand_ids_df["dsp_id"].dropna().unique())
 
-    unmapped_advertiser_ids = [
-        adv_id for adv_id in demand_advertiser_ids.tolist() if adv_id not in mapped_dsp_ids.tolist()
+    new_id_list = [
+        adv_id for adv_id in demand_advertiser_ids.tolist() if adv_id not in known_dsp_ids.tolist()
     ]
 
     new_mappings_df = (
-        demand[demand["AdvertiserAccountID"].isin(unmapped_advertiser_ids)][
+        demand[demand["AdvertiserAccountID"].isin(new_id_list)][
             ["AdvertiserAccountID", "advertiser_account_name"]
         ]
         .drop_duplicates()
@@ -525,18 +534,14 @@ def process_revenue_files(instructions_file, demand_data_file, demand_id_file):
                 "advertiser_account_name": "dsp_name",
             }
         )
+        .sort_values(by=["dsp_id", "dsp_name"], na_position="last")
+        .reset_index(drop=True)
     )
 
     if not new_mappings_df.empty:
         new_mappings_df["dsp_id"] = new_mappings_df["dsp_id"].astype("Int64")
 
-    updated_demand_mapping = pd.concat(
-        [demand_mapping, new_mappings_df],
-        ignore_index=True,
-    ).drop_duplicates(subset=["dsp_id"], keep="first")
-
-    if "advertiser_account_name" in demand.columns:
-        demand = demand.drop(columns=["advertiser_account_name"])
+    demand = demand.drop(columns=["advertiser_account_name"])
 
     month_column_name, latest_month_str = _derive_month_fields(demand)
 
@@ -565,7 +570,6 @@ def process_revenue_files(instructions_file, demand_data_file, demand_id_file):
     ]
 
     generated_reports = {}
-    report_previews = {}
 
     for config in iterations:
         report_result = generate_revenue_reports_iteration(
@@ -585,16 +589,9 @@ def process_revenue_files(instructions_file, demand_data_file, demand_id_file):
         generated_reports[report_result["report_filename"]] = report_result["report_bytes"]
         generated_reports[report_result["trigger_filename"]] = report_result["trigger_bytes"]
 
-        report_previews[config["report_identifier"]] = {
-            "main_report_df": report_result["main_report_df"],
-            "trigger_report_df": report_result["trigger_report_df"],
-        }
-
     return {
-        "updated_demand_mapping": updated_demand_mapping,
+        "known_demand_ids_df": known_demand_ids_df,
         "new_mappings_df": new_mappings_df,
-        "unmapped_advertiser_ids": unmapped_advertiser_ids,
         "generated_reports": generated_reports,
-        "report_previews": report_previews,
         "month_label": latest_month_str,
     }
