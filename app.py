@@ -150,7 +150,7 @@ elif page == "Adaptive Revenue Demand Upload":
             Upload:
             1. Instructions Excel (.xlsx) with 3 sheets
             2. Demand data CSV (.csv)
-            3. Demand ID mapping CSV (.csv)
+            3. Demand ID CSV (.csv)
             """
         )
 
@@ -165,7 +165,7 @@ elif page == "Adaptive Revenue Demand Upload":
         key="rev_demand_data_file",
     )
     demand_id_file = st.file_uploader(
-        "Upload demand ID mapping CSV",
+        "Upload demand ID CSV",
         type=["csv"],
         key="rev_demand_id_file",
     )
@@ -180,9 +180,8 @@ elif page == "Adaptive Revenue Demand Upload":
                         demand_id_file=demand_id_file,
                     )
 
-                updated_demand_mapping_df = result["updated_demand_mapping"]
+                known_demand_ids_df = result["known_demand_ids_df"]
                 new_mappings_df = result["new_mappings_df"]
-                unmapped_advertiser_ids = result["unmapped_advertiser_ids"]
                 generated_reports = result["generated_reports"]
                 month_label = result["month_label"]
 
@@ -190,9 +189,23 @@ elif page == "Adaptive Revenue Demand Upload":
 
                 st.subheader("Summary")
                 st.write(f"Generated report files: {len(generated_reports)}")
-                st.write(f"New demand mappings added: {len(new_mappings_df)}")
-                st.write(f"Unmapped AdvertiserAccountIDs found: {len(unmapped_advertiser_ids)}")
+                st.write(f"Known demand IDs in uploaded demand ID file: {len(known_demand_ids_df)}")
+                st.write(f"New demand_id + dsp_name pairs found: {len(new_mappings_df)}")
                 st.write(f"Output month label: {month_label}")
+
+                if not new_mappings_df.empty:
+                    st.subheader("New demand_id / dsp_name pairs found")
+                    st.dataframe(new_mappings_df, use_container_width=True)
+
+                    new_mapping_csv = new_mappings_df.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="Download New demand_id / dsp_name Pairs (CSV)",
+                        data=new_mapping_csv,
+                        file_name="new_demand_id_dsp_name_pairs.csv",
+                        mime="text/csv",
+                    )
+                else:
+                    st.info("No new demand_id / dsp_name pairs were found.")
 
                 if generated_reports:
                     st.subheader("Generated Revenue Files")
@@ -218,33 +231,7 @@ elif page == "Adaptive Revenue Demand Upload":
                         mime="application/zip",
                     )
 
-                st.subheader("Updated Demand Mapping Preview")
-                st.dataframe(updated_demand_mapping_df.head(50), use_container_width=True)
-
-                if not new_mappings_df.empty:
-                    st.subheader("New Demand Mappings Added")
-                    st.dataframe(new_mappings_df, use_container_width=True)
-
-                if len(unmapped_advertiser_ids) > 0:
-                    st.subheader("Unmapped AdvertiserAccountIDs")
-                    st.dataframe(
-                        pd.DataFrame(
-                            {"Unmapped AdvertiserAccountID": list(unmapped_advertiser_ids)}
-                        ),
-                        use_container_width=True,
-                    )
-
-                mapping_csv = updated_demand_mapping_df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="Download Updated Demand Mapping (CSV)",
-                    data=mapping_csv,
-                    file_name="updated_demand_id_mapping.csv",
-                    mime="text/csv",
-                )
-
             except Exception as e:
                 st.error(f"Error while processing revenue demand files: {e}")
     else:
         st.info("Please upload all three required revenue demand files.")
-else:
-    st.info("Please upload all three required files.")
