@@ -32,9 +32,9 @@ def _derive_month_fields(demand):
             "Could not parse 'utc_month_sid'. Expected values like YYYYMM or YYYYMMDD."
         )
 
-    month_column_name = parsed_month.strftime("%b-%y")
-    latest_month_str = parsed_month.strftime("%b %Y")
-    return month_column_name, latest_month_str
+    month_start_date = parsed_month.replace(day=1)
+    month_file_label = parsed_month.strftime("%Y%m")
+    return month_start_date, month_file_label
 
 
 def _apply_excel_formatting(writer, instructions_df, data_df, output_sheet_name):
@@ -47,8 +47,16 @@ def _apply_excel_formatting(writer, instructions_df, data_df, output_sheet_name)
     data_ws = writer.sheets[output_sheet_name]
 
     bold_format = workbook.add_format({"bold": True})
-    instructions_ws.set_row(0, None, bold_format)
-
+    date_header_format = workbook.add_format(
+        {
+            "bold": True,
+            "num_format": "m/d/yyyy",
+            "bottom": 0,
+            "top": 0,
+            "left": 0,
+            "right": 0,
+        }
+    )
     bold_no_border_format = workbook.add_format(
         {
             "bold": True,
@@ -58,7 +66,14 @@ def _apply_excel_formatting(writer, instructions_df, data_df, output_sheet_name)
             "right": 0,
         }
     )
-    data_ws.set_row(0, None, bold_no_border_format)
+
+    instructions_ws.set_row(0, None, bold_format)
+
+    for col_idx, col_name in enumerate(data_df.columns):
+        if isinstance(col_name, pd.Timestamp):
+            data_ws.write_datetime(0, col_idx, col_name.to_pydatetime(), date_header_format)
+        else:
+            data_ws.write(0, col_idx, col_name, bold_no_border_format)
 
 
 def _build_revenue_report_file(instructions_df, final_df, output_sheet_name):
@@ -93,7 +108,7 @@ def generate_revenue_reports_iteration(
     report_identifier,
     device_prefix,
     month_column_name,
-    latest_month_str,
+    month_file_label,
 ):
     filtered_demand_iter = demand[
         (demand["device_type"] == device_type) & (demand["environment"] == environment)
@@ -217,12 +232,12 @@ def generate_revenue_reports_iteration(
     trigger_sheet_name = main_sheet_name
 
     report_filename = (
-        f"_{report_identifier}_Rev_-_Demand_-_Model_-__{device_prefix} LOAD FILE "
-        f"({latest_month_str}).xlsx"
+        f"_{report_identifier}_Rev_-_Demand_-_Model_-_{device_prefix} LOAD FILE "
+        f"({month_file_label}).xlsx"
     )
     trigger_filename = (
-        f"_{report_identifier}_Rev_-_Demand_-_Model_-__{device_prefix} LOAD FILE "
-        f"({latest_month_str}) - trigger.xlsx"
+        f"_{report_identifier}_Rev_-_Demand_-_Model_-_{device_prefix} LOAD FILE "
+        f"({month_file_label})- trigger.xlsx"
     )
 
     report_bytes = _build_revenue_report_file(
@@ -293,7 +308,7 @@ def process_revenue_files(instructions_file, demand_data_file, demand_id_file):
 
     demand = demand.drop(columns=["advertiser_account_name"])
 
-    month_column_name, latest_month_str = _derive_month_fields(demand)
+    month_column_name, month_file_label = _derive_month_fields(demand)
 
     iterations = [
         {
@@ -330,7 +345,7 @@ def process_revenue_files(instructions_file, demand_data_file, demand_id_file):
             report_identifier=config["report_identifier"],
             device_prefix=config["device_prefix"],
             month_column_name=month_column_name,
-            latest_month_str=latest_month_str,
+            month_file_label=month_file_label,
         )
 
         if report_result is None:
@@ -343,5 +358,5 @@ def process_revenue_files(instructions_file, demand_data_file, demand_id_file):
         "known_demand_ids_df": known_demand_ids_df,
         "new_mappings_df": new_mappings_df,
         "generated_reports": generated_reports,
-        "month_label": latest_month_str,
+        "month_label": month_file_label,
     }
