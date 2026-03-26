@@ -32,9 +32,9 @@ def _derive_month_fields(demand):
             "Could not parse 'utc_month_sid'. Expected values like YYYYMM or YYYYMMDD."
         )
 
-    month_start_date = parsed_month.replace(day=1)
+    month_column_name = parsed_month.strftime("%b-%y")
     month_file_label = parsed_month.strftime("%Y%m")
-    return month_start_date, month_file_label
+    return month_column_name, month_file_label
 
 
 def _apply_excel_formatting(writer, instructions_df, data_df, output_sheet_name):
@@ -47,16 +47,8 @@ def _apply_excel_formatting(writer, instructions_df, data_df, output_sheet_name)
     data_ws = writer.sheets[output_sheet_name]
 
     bold_format = workbook.add_format({"bold": True})
-    date_header_format = workbook.add_format(
-        {
-            "bold": True,
-            "num_format": "m/d/yyyy",
-            "bottom": 0,
-            "top": 0,
-            "left": 0,
-            "right": 0,
-        }
-    )
+    instructions_ws.set_row(0, None, bold_format)
+
     bold_no_border_format = workbook.add_format(
         {
             "bold": True,
@@ -66,14 +58,7 @@ def _apply_excel_formatting(writer, instructions_df, data_df, output_sheet_name)
             "right": 0,
         }
     )
-
-    instructions_ws.set_row(0, None, bold_format)
-
-    for col_idx, col_name in enumerate(data_df.columns):
-        if isinstance(col_name, pd.Timestamp):
-            data_ws.write_datetime(0, col_idx, col_name.to_pydatetime(), date_header_format)
-        else:
-            data_ws.write(0, col_idx, col_name, bold_no_border_format)
+    data_ws.set_row(0, None, bold_no_border_format)
 
 
 def _build_revenue_report_file(instructions_df, final_df, output_sheet_name):
