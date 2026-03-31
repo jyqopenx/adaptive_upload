@@ -22,6 +22,14 @@ def _get_selected_month_fields(selected_month_start):
     return month_column_name, month_file_label
 
 
+def _get_trigger_month_column(selected_month_start):
+    if selected_month_start is None:
+        raise ValueError("selected_month_start is required.")
+
+    selected_month_start = pd.Timestamp(selected_month_start).replace(day=1)
+    return pd.Timestamp(year=selected_month_start.year, month=12, day=1)
+
+
 def _apply_excel_formatting(writer, instructions_df, data_df, output_sheet_name):
     instructions_df.to_excel(writer, sheet_name="Instructions", index=False, header=False)
     data_df.to_excel(writer, sheet_name=output_sheet_name, index=False)
@@ -93,6 +101,7 @@ def generate_revenue_reports_iteration(
     report_identifier,
     device_prefix,
     month_column_name,
+    trigger_month_column_name,
     month_file_label,
 ):
     filtered_demand_iter = demand[
@@ -198,7 +207,7 @@ def generate_revenue_reports_iteration(
     ].drop_duplicates().reset_index(drop=True)
 
     triggers_df_iter["Account"] = "triggers"
-    triggers_df_iter[month_column_name] = 1
+    triggers_df_iter[trigger_month_column_name] = 1
 
     final_triggers_report_iter = triggers_df_iter.rename(
         columns={
@@ -211,7 +220,17 @@ def generate_revenue_reports_iteration(
         }
     )
 
-    final_triggers_report_iter = final_triggers_report_iter[output_columns_order]
+    trigger_output_columns_order = [
+        "Account",
+        "Level Code",
+        "Demand Partner ID Code",
+        "Integration Code",
+        "Ad_Format Code",
+        "Transaction_Type Code",
+        "Bidout_Partner Code",
+        trigger_month_column_name,
+    ]
+    final_triggers_report_iter = final_triggers_report_iter[trigger_output_columns_order]
 
     main_sheet_name = f"_{report_identifier.replace('_', '.')} Rev - Demand - Model - {device_prefix}"
     trigger_sheet_name = main_sheet_name
@@ -299,6 +318,7 @@ def process_revenue_files(
     demand = demand.drop(columns=["advertiser_account_name"])
 
     month_column_name, month_file_label = _get_selected_month_fields(selected_month_start)
+    trigger_month_column_name = _get_trigger_month_column(selected_month_start)
 
     iterations = [
         {
@@ -335,6 +355,7 @@ def process_revenue_files(
             report_identifier=config["report_identifier"],
             device_prefix=config["device_prefix"],
             month_column_name=month_column_name,
+            trigger_month_column_name=trigger_month_column_name,
             month_file_label=month_file_label,
         )
 
@@ -349,4 +370,6 @@ def process_revenue_files(
         "new_mappings_df": new_mappings_df,
         "generated_reports": generated_reports,
         "month_label": month_file_label,
+        "month_column_name": month_column_name,
+        "trigger_month_column_name": trigger_month_column_name,
     }
