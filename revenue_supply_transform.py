@@ -101,6 +101,7 @@ def process_revenue_supply_files(
     instructions_file,
     prior_pubid_file,
     supply_data_file,
+    selected_month_start,
 ):
     instructions_wb = load_workbook(instructions_file)
 
@@ -165,13 +166,11 @@ def process_revenue_supply_files(
         if col in supply.columns:
             supply[col] = pd.to_numeric(supply[col], errors="coerce")
 
-    today = pd.Timestamp.today().normalize()
-    first_day_this_month = today.replace(day=1)
-    first_day_last_month = first_day_this_month - pd.DateOffset(months=1)
+    selected_month_start = pd.Timestamp(selected_month_start).replace(day=1)
     last_month_col_name = (
-        f"{first_day_last_month.month}/{first_day_last_month.day}/{first_day_last_month.year}"
+        f"{selected_month_start.month}/{selected_month_start.day}/{selected_month_start.year}"
     )
-    month_label = first_day_last_month.strftime("%Y%m")
+    month_label = selected_month_start.strftime("%Y%m")
 
     group_cols = [
         "level",
@@ -190,11 +189,7 @@ def process_revenue_supply_files(
             & (df["environment"] == environment.lower())
         ].copy()
 
-        grouped = (
-            filtered.groupby(group_cols, dropna=False)
-            .agg(agg_cols)
-            .reset_index()
-        )
+        grouped = filtered.groupby(group_cols, dropna=False).agg(agg_cols).reset_index()
 
         long_df = grouped.melt(
             id_vars=group_cols,
@@ -373,7 +368,9 @@ def process_revenue_supply_files(
         "bidout_partner",
     ]
 
-    consolidated_trigger_df = supply[new_consolidated_group_cols].drop_duplicates().reset_index(drop=True)
+    consolidated_trigger_df = supply[new_consolidated_group_cols].drop_duplicates().reset_index(
+        drop=True
+    )
     consolidated_trigger_df.insert(0, "Account", "trigger")
 
     consolidated_trigger_df = consolidated_trigger_df.rename(
@@ -406,9 +403,9 @@ def process_revenue_supply_files(
         ]
     ].copy()
 
-    consolidated_trigger_df["Publisher ID Code"] = consolidated_trigger_df["Publisher ID Code"].replace(
-        "nan", "(blank)"
-    )
+    consolidated_trigger_df["Publisher ID Code"] = consolidated_trigger_df[
+        "Publisher ID Code"
+    ].replace("nan", "(blank)")
 
     assumptions_file_2 = f"_A_07_Consolidated_-_Rev_-_Core LOAD FILE ({month_label}) - TRIGGERa.xlsx"
     assumptions_bytes_2 = build_output_workbook(
@@ -429,7 +426,9 @@ def process_revenue_supply_files(
     ].drop_duplicates().copy()
 
     prior_pubid_list = prior_pubid["pub_id"].astype(str).tolist()
-    unique_publishers_supply["sf_account_id"] = unique_publishers_supply["sf_account_id"].astype(str)
+    unique_publishers_supply["sf_account_id"] = unique_publishers_supply["sf_account_id"].astype(
+        str
+    )
 
     new_pub_ids_df = unique_publishers_supply[
         ~unique_publishers_supply["sf_account_id"].isin(prior_pubid_list)
@@ -467,11 +466,15 @@ def process_revenue_supply_files(
         ]
     ].copy()
 
-    final_new_pub_ids_df["Monthly Total Publisher Cohort Name"] = first_day_last_month.strftime("%B %Y")
-    final_new_pub_ids_df["Annual Total Publisher Cohort Code"] = first_day_last_month.year
-    final_new_pub_ids_df[f"{first_day_last_month.year} Cohort Code"] = "New"
+    final_new_pub_ids_df["Monthly Total Publisher Cohort Name"] = selected_month_start.strftime(
+        "%B %Y"
+    )
+    final_new_pub_ids_df["Annual Total Publisher Cohort Code"] = selected_month_start.year
+    final_new_pub_ids_df[f"{selected_month_start.year} Cohort Code"] = "New"
     final_new_pub_ids_df["Publisher Status Code"] = "Active"
-    final_new_pub_ids_df["Launch Cohort Code"] = final_new_pub_ids_df["Annual Total Publisher Cohort Code"]
+    final_new_pub_ids_df["Launch Cohort Code"] = final_new_pub_ids_df[
+        "Annual Total Publisher Cohort Code"
+    ]
 
     final_new_pub_ids_df = pd.merge(
         final_new_pub_ids_df,
@@ -485,7 +488,9 @@ def process_revenue_supply_files(
         columns={"Publisher Region": "Publisher Region Code"}
     ).drop(columns=["management_reporting_region__c"])
 
-    final_new_pub_ids_df = final_new_pub_ids_df.loc[:, ~final_new_pub_ids_df.columns.duplicated()]
+    final_new_pub_ids_df = final_new_pub_ids_df.loc[
+        :, ~final_new_pub_ids_df.columns.duplicated()
+    ]
 
     dimensions_filename = "dimensions.xlsx"
     dimensions_bytes = dataframe_to_excel_bytes(final_new_pub_ids_df)
