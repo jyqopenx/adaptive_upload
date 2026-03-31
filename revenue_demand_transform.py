@@ -12,29 +12,14 @@ def _normalize_integer_series(series):
     return pd.to_numeric(series, errors="coerce").astype("Int64")
 
 
-def _derive_month_fields(demand):
-    if "utc_month_sid" not in demand.columns:
-        raise ValueError("Column 'utc_month_sid' is required in demand data.")
+def _get_selected_month_fields(selected_month_start):
+    if selected_month_start is None:
+        raise ValueError("selected_month_start is required.")
 
-    month_values = pd.to_numeric(demand["utc_month_sid"], errors="coerce").dropna()
-    if month_values.empty:
-        raise ValueError("No valid values found in 'utc_month_sid'.")
-
-    latest_raw = int(month_values.max())
-    latest_raw_str = str(latest_raw)
-
-    parsed_month = pd.to_datetime(latest_raw_str, format="%Y%m", errors="coerce")
-    if pd.isna(parsed_month):
-        parsed_month = pd.to_datetime(latest_raw_str, format="%Y%m%d", errors="coerce")
-
-    if pd.isna(parsed_month):
-        raise ValueError(
-            "Could not parse 'utc_month_sid'. Expected values like YYYYMM or YYYYMMDD."
-        )
-
-    month_start_date = parsed_month.replace(day=1)
-    month_file_label = parsed_month.strftime("%Y%m")
-    return month_start_date, month_file_label
+    selected_month_start = pd.Timestamp(selected_month_start).replace(day=1)
+    month_column_name = selected_month_start
+    month_file_label = selected_month_start.strftime("%Y%m")
+    return month_column_name, month_file_label
 
 
 def _apply_excel_formatting(writer, instructions_df, data_df, output_sheet_name):
@@ -260,7 +245,12 @@ def generate_revenue_reports_iteration(
     }
 
 
-def process_revenue_files(instructions_file, demand_data_file, demand_id_file):
+def process_revenue_files(
+    instructions_file,
+    demand_data_file,
+    demand_id_file,
+    selected_month_start,
+):
     instructions_sheet1 = _safe_read_instruction_sheet(instructions_file, 0)
     instructions_sheet2 = _safe_read_instruction_sheet(instructions_file, 1)
     instructions_sheet3 = _safe_read_instruction_sheet(instructions_file, 2)
@@ -308,7 +298,7 @@ def process_revenue_files(instructions_file, demand_data_file, demand_id_file):
 
     demand = demand.drop(columns=["advertiser_account_name"])
 
-    month_column_name, month_file_label = _derive_month_fields(demand)
+    month_column_name, month_file_label = _get_selected_month_fields(selected_month_start)
 
     iterations = [
         {
