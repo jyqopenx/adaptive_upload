@@ -1,6 +1,5 @@
-# app.py
-
 import zipfile
+from datetime import date
 from io import BytesIO
 
 import pandas as pd
@@ -13,7 +12,33 @@ from revenue_supply_transform import process_revenue_supply_files
 st.set_page_config(page_title="Adaptive Upload Tool", layout="wide")
 
 st.title("Adaptive Upload Tool")
-st.write("Use the sidebar to switch between Adaptive Cost Upload, Adaptive Revenue Demand Upload, and Adaptive Revenue Supply Upload.")
+st.write(
+    "Use the sidebar to switch between Adaptive Cost Upload, Adaptive Revenue Demand Upload, and Adaptive Revenue Supply Upload."
+)
+
+
+def get_selected_month_start(key_prefix: str) -> pd.Timestamp:
+    today = date.today()
+
+    selected_month = st.selectbox(
+        "Select month",
+        options=list(range(1, 13)),
+        index=today.month - 1,
+        key=f"{key_prefix}_month",
+        format_func=lambda m: date(2000, m, 1).strftime("%B"),
+    )
+
+    selected_year = st.number_input(
+        "Select year",
+        min_value=2020,
+        max_value=2100,
+        value=today.year,
+        step=1,
+        key=f"{key_prefix}_year",
+    )
+
+    return pd.Timestamp(year=int(selected_year), month=int(selected_month), day=1)
+
 
 page = st.sidebar.radio(
     "Select section",
@@ -162,6 +187,14 @@ elif page == "Adaptive Revenue Demand Upload":
             """
         )
 
+        st.subheader("Output month")
+        selected_month_start = get_selected_month_start("rev_demand")
+        st.caption(
+            f"Selected month: {selected_month_start.strftime('%B %Y')} "
+            f"(file label: {selected_month_start.strftime('%Y%m')}, "
+            f"column: {selected_month_start.month}/{selected_month_start.day}/{selected_month_start.year})"
+        )
+
     instructions_file = st.file_uploader(
         "Upload instructions Excel",
         type=["xlsx"],
@@ -186,6 +219,7 @@ elif page == "Adaptive Revenue Demand Upload":
                         instructions_file=instructions_file,
                         demand_data_file=demand_data_file,
                         demand_id_file=demand_id_file,
+                        selected_month_start=selected_month_start,
                     )
 
                 known_demand_ids_df = result["known_demand_ids_df"]
@@ -197,7 +231,9 @@ elif page == "Adaptive Revenue Demand Upload":
 
                 st.subheader("Summary")
                 st.write(f"Generated report files: {len(generated_reports)}")
-                st.write(f"Known demand IDs in uploaded demand ID file: {len(known_demand_ids_df)}")
+                st.write(
+                    f"Known demand IDs in uploaded demand ID file: {len(known_demand_ids_df)}"
+                )
                 st.write(f"New demand_id + dsp_name pairs found: {len(new_mappings_df)}")
                 st.write(f"Output month label: {month_label}")
 
@@ -258,6 +294,14 @@ elif page == "Adaptive Revenue Supply Upload":
             """
         )
 
+        st.subheader("Output month")
+        selected_month_start = get_selected_month_start("rev_supply")
+        st.caption(
+            f"Selected month: {selected_month_start.strftime('%B %Y')} "
+            f"(file label: {selected_month_start.strftime('%Y%m')}, "
+            f"column: {selected_month_start.month}/{selected_month_start.day}/{selected_month_start.year})"
+        )
+
     supply_instructions_file = st.file_uploader(
         "Upload instructions Excel",
         type=["xlsx"],
@@ -282,6 +326,7 @@ elif page == "Adaptive Revenue Supply Upload":
                         instructions_file=supply_instructions_file,
                         prior_pubid_file=prior_pubid_file,
                         supply_data_file=supply_data_file,
+                        selected_month_start=selected_month_start,
                     )
 
                 generated_reports = result["generated_reports"]
@@ -324,6 +369,11 @@ elif page == "Adaptive Revenue Supply Upload":
                     file_name=f"adaptive_revenue_supply_outputs_{month_label}.zip",
                     mime="application/zip",
                 )
+
+            except Exception as e:
+                st.error(f"Error while processing revenue supply files: {e}")
+    else:
+        st.info("Please upload all three required revenue supply files.")
 
             except Exception as e:
                 st.error(f"Error while processing revenue supply files: {e}")
